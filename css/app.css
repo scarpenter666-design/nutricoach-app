@@ -1,0 +1,161 @@
+/* ============================================================
+   app.css – Styles von NutriCoach (auf base.css aufgesetzt).
+   Kein Inline-Style im HTML: Alles, was die App anzeigt, hat hier
+   eine Klasse.
+   ============================================================ */
+
+/* ── Navigation mit Symbol ── */
+.nav-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 10px; letter-spacing: 0.04em; }
+.nav-btn__icon { font-size: 18px; line-height: 1; }
+
+/* ── Allgemein ── */
+h3.subhead { font-size: 14px; font-weight: 600; color: var(--accent-soft); margin: 4px 0 0; }
+.view-head { margin-bottom: 12px; align-items: flex-start; }
+.view-head h2 { margin-bottom: 2px; }
+.toolbar { margin: 10px 0 14px; }
+.form-error { color: var(--danger); font-size: 14px; min-height: 0; }
+.form-error:empty { display: none; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 420px) { .form-grid { grid-template-columns: 1fr; } }
+.empty { text-align: center; padding: 40px 12px; color: var(--text-muted); }
+.empty__icon { font-size: 40px; opacity: 0.6; margin-bottom: 8px; }
+.empty__title { color: var(--text); margin-bottom: 4px; }
+.is-pos { color: var(--danger); }
+.is-neg { color: var(--accent); }
+a { color: var(--accent); }
+
+.hero { text-align: center; padding: 20px 8px 24px; }
+.hero__title { font-family: var(--font-display); font-size: 48px; letter-spacing: 3px; color: var(--accent); text-shadow: 0 0 22px var(--accent-glow); line-height: 1; margin-bottom: 8px; }
+
+/* ── Segment-Umschalter ── */
+.seg { display: flex; gap: 4px; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-small); margin-bottom: 14px; }
+.seg__btn { flex: 1; min-height: 36px; border: 0; border-radius: 7px; background: none; color: var(--text-muted); font: 600 13px var(--font-body); cursor: pointer; }
+.seg__btn[aria-pressed='true'] { background: var(--accent); color: var(--accent-contrast); }
+
+/* ── Chips (Küchen) ── */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { cursor: pointer; position: relative; }
+.chip input { position: absolute; opacity: 0; pointer-events: none; }
+.chip span { display: inline-block; padding: 8px 14px; border-radius: 999px; font-size: 14px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted); }
+.chip input:checked + span { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+.chip input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ── Laden ── */
+.loading { text-align: center; padding: 48px 12px; }
+.loading > * + * { margin-top: 10px; }
+.loading--small { padding: 24px 12px; }
+.spinner { width: 44px; height: 44px; margin: 0 auto 6px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Wochenplan ── */
+.day { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px; overflow: hidden; }
+.day__head { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; background: var(--surface-2); border: 0; color: var(--text); font: inherit; cursor: pointer; text-align: left; }
+.day__name { font-weight: 600; color: var(--accent-soft); }
+.day__kcal { font-size: 13px; color: var(--text-muted); }
+.day__toggle { color: var(--text-muted); transition: transform 0.2s; }
+.day[data-open='true'] .day__toggle { transform: rotate(180deg); }
+.day__body { padding: 4px 16px; }
+.day[data-open='false'] .day__body { display: none; }
+
+.meal { display: grid; grid-template-columns: 64px 1fr; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.meal:last-child { border-bottom: 0; }
+.meal__type { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 600; padding-top: 3px; }
+.meal__name { font-weight: 600; margin-bottom: 4px; }
+.meal__actions { grid-column: 2; margin-top: 6px; }
+
+.macros { display: flex; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--text-muted); }
+.macro { display: inline-flex; align-items: center; gap: 5px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.dot--protein { background: var(--protein); }
+.dot--carbs { background: var(--carbs); }
+.dot--fat { background: var(--fat); }
+.c-protein { color: var(--protein); }
+.c-carbs { color: var(--carbs); }
+.c-fat { color: var(--fat); }
+.c-accent { color: var(--accent); }
+
+.badges { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.badge { background: var(--surface-2); border: 1px solid var(--border); border-radius: 5px; padding: 2px 7px; font-size: 12px; color: var(--text-muted); }
+.badge--accent { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+
+/* ── Kennzahlen ── */
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.stats:empty { display: none; }
+.stat { background: var(--surface-2); border-radius: var(--radius-small); padding: 10px; text-align: center; }
+.stat__val { font-size: 18px; font-weight: 700; }
+.stat__val--small { font-size: 14px; }
+.stat__label { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.nutr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.nutr { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-small); padding: 12px; }
+.nutr__day { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+.nutr__total { font-size: 20px; font-weight: 700; color: var(--accent); margin: 4px 0 6px; }
+.nutr__row { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-muted); padding: 2px 0; }
+.nutr__row b { font-weight: 600; }
+
+/* ── Einkaufsliste ── */
+.cost { display: flex; justify-content: space-between; align-items: center; }
+.cost__val { font-size: 20px; font-weight: 700; color: var(--accent); }
+.shop-cat { margin-bottom: 16px; }
+.shop-cat__title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); padding-bottom: 6px; margin-bottom: 4px; border-bottom: 1px solid var(--border); }
+.shop-item { width: 100%; display: flex; align-items: center; gap: 12px; padding: 11px 0; border: 0; border-bottom: 1px solid var(--border); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.shop-item--static { cursor: default; }
+.shop-item__box { width: 22px; height: 22px; flex-shrink: 0; border: 2px solid var(--border); border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: var(--accent-contrast); }
+.shop-item__name { flex: 1; }
+.shop-item__amount { font-size: 13px; color: var(--text-muted); }
+.shop-item[aria-pressed='true'] { opacity: 0.45; }
+.shop-item[aria-pressed='true'] .shop-item__name { text-decoration: line-through; }
+.shop-item[aria-pressed='true'] .shop-item__box { background: var(--accent); border-color: var(--accent); }
+.shop-item[aria-pressed='true'] .shop-item__box::after { content: '✓'; }
+
+/* ── Vorrat ── */
+.pantry-item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.pantry-item:last-child { border-bottom: 0; }
+.pantry-item__info { flex: 1; min-width: 0; }
+.pantry-item__meta { font-size: 12px; color: var(--text-muted); }
+.pantry-item__amount { width: 96px; min-height: 36px; padding: 6px 8px; font-size: 14px; }
+
+.icon-btn { min-width: 36px; min-height: 36px; border: 1px solid var(--border); border-radius: var(--radius-small); background: none; color: var(--text-muted); font-size: 14px; cursor: pointer; }
+.icon-btn--danger { color: var(--danger); border-color: var(--danger); }
+
+/* ── Karten (Meal-Prep, Bibliothek) ── */
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-top: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-small); padding: 14px; }
+.tile--accent { border-left: 3px solid var(--accent); }
+.tile__name { font-weight: 600; margin-bottom: 4px; }
+.tile__meta { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
+.tile__tip { background: var(--accent-dim); border-radius: 8px; padding: 8px 10px; font-size: 13px; color: var(--text-muted); margin-top: 8px; }
+.tile__actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+#libSearch { margin-bottom: 4px; }
+
+/* ── Rezept-Dialog ── */
+dialog.dialog--wide { width: min(640px, calc(100vw - 24px)); max-height: 88vh; overflow-y: auto; }
+.recipe-badges { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 14px; }
+.recipe-macros { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 8px; }
+@media (max-width: 420px) { .recipe-macros { grid-template-columns: repeat(2, 1fr); } }
+.recipe-section { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); margin: 16px 0 6px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.ingredients { list-style: none; padding: 0; }
+.ingredients li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 15px; }
+.ingredients__amount { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+.ingredients__alt { font-size: 12px; color: var(--text-muted); }
+.steps { list-style: none; padding: 0; counter-reset: step; }
+.steps li { display: flex; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 15px; line-height: 1.55; color: var(--text-muted); counter-increment: step; }
+.steps li::before { content: counter(step); flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-contrast); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.hint { background: var(--accent-dim); border: 1px solid var(--accent-glow); border-radius: var(--radius-small); padding: 10px 12px; font-size: 14px; color: var(--text-muted); }
+
+/* ── Kassenzettel ── */
+.receipt__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 10px; }
+.receipt__store { font-weight: 600; }
+.receipt__meta { font-size: 12px; color: var(--text-muted); }
+.receipt__total { font-size: 20px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+.receipt__items { display: grid; grid-template-columns: 1fr auto; }
+.receipt__name, .receipt__price { padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.receipt__name { color: var(--text-muted); }
+.receipt__price { text-align: right; display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
+.receipt__qty { color: var(--text-muted); opacity: 0.8; }
+.change { font-size: 11px; padding: 2px 6px; border-radius: 4px; }
+.change--up { background: rgba(232, 80, 80, 0.15); color: var(--danger); }
+.change--down { background: var(--accent-dim); color: var(--accent); }
+.card--alert { border-color: var(--danger); }
+.card--ok { border-color: var(--accent); }
+.alert-row { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.alert-row__old { color: var(--text-muted); }

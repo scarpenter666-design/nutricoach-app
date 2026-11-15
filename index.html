@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+
+<!-- Sicherheitsregel (Content-Security-Policy): Der Browser führt nur Scripts
+     und Styles aus eigenen Dateien aus. Kein Inline-Code. Einziger fremder
+     Server: die KI-Schnittstelle (connect-src). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://api.anthropic.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+
+<!-- ▼ Pro App anpassen -->
+<title>NutriCoach</title>
+<meta name="description" content="Dein persönlicher KI-Ernährungsberater für eiweißreiche, budgetfreundliche Ernährung">
+<meta name="theme-color" content="#0f1a0f">
+<meta name="apple-mobile-web-app-title" content="NutriCoach">
+<!-- ▲ Pro App anpassen -->
+
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<div class="app">
+  <header class="app__header">
+    <h1 class="app__title" id="appTitle">NutriCoach</h1>
+    <button type="button" class="btn btn--small" id="installBtn" hidden>Installieren</button>
+  </header>
+
+  <main class="app__main" id="main">
+
+    <!-- ── Erststart: API-Key ── -->
+    <section data-view="setup" hidden>
+      <div class="hero">
+        <div class="hero__title">NutriCoach</div>
+        <p class="muted">Dein persönlicher KI-Ernährungsberater für eiweißreiche, budgetfreundliche Ernährung.</p>
+      </div>
+      <div class="card stack">
+        <h2>API-Key einrichten</h2>
+        <form class="stack" id="setupForm" novalidate>
+          <div>
+            <label class="label" for="setupKey">Anthropic API-Key</label>
+            <input class="input" id="setupKey" type="password" placeholder="sk-ant-api03-…" autocomplete="off" autocapitalize="off" spellcheck="false">
+          </div>
+          <p class="muted">Der Key bleibt nur auf diesem Gerät und kommt nie ins Backup. Einen Key bekommst du in der <a id="setupKeyLink" target="_blank" rel="noopener noreferrer">Anthropic-Konsole</a>.</p>
+          <p class="form-error" id="setupError" role="alert"></p>
+          <button type="submit" class="btn">Weiter</button>
+        </form>
+      </div>
+      <div class="card stack">
+        <h2>Umzug aus der alten App</h2>
+        <p class="muted" id="setupImportInfo">Du hast schon Daten in der alten NutriCoach? Spiel hier deren Backup-Datei ein. Plan, Rezepte, Vorrat und Ausgaben werden übernommen, der alte Key nicht.</p>
+        <div class="row">
+          <button type="button" class="btn btn--ghost" data-action="import">Backup einspielen</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Plan-Formular (Erststart und "Neuer Plan") ── -->
+    <section data-view="form" hidden>
+      <div class="card stack">
+        <h2 id="formTitle">Lass uns starten!</h2>
+        <p class="muted" id="formIntro">Beantworte kurz ein paar Fragen, damit ich den passenden Plan für dich erstellen kann.</p>
+        <form class="stack" id="planForm" novalidate>
+          <div class="form-grid">
+            <div><label class="label" for="pf-goal">Fitnessziel</label>
+              <select class="input" id="pf-goal">
+                <option value="Muskelaufbau">💪 Muskelaufbau</option>
+                <option value="Abnehmen">🏃 Abnehmen</option>
+                <option value="Gewicht halten">⚖️ Gewicht halten</option>
+              </select></div>
+            <div><label class="label" for="pf-budget">Wochenbudget</label>
+              <select class="input" id="pf-budget">
+                <option value="unter 30€ (sehr günstig)">unter 30€ (sehr günstig)</option>
+                <option value="30–50€ (Low Budget)" selected>30–50€ (Low Budget)</option>
+                <option value="50–80€ (mittel)">50–80€ (mittel)</option>
+                <option value="über 80€ (flexibel)">über 80€ (flexibel)</option>
+              </select></div>
+            <div><label class="label" for="pf-persons">Personen</label>
+              <select class="input" id="pf-persons">
+                <option value="1">1 Person</option>
+                <option value="2" selected>2 Personen</option>
+                <option value="3">3 Personen</option>
+                <option value="4">4 Personen</option>
+              </select></div>
+            <div><label class="label" for="pf-days">Planungszeitraum</label>
+              <select class="input" id="pf-days">
+                <option value="3">3 Tage</option>
+                <option value="5" selected>5 Tage (Arbeitswoche)</option>
+                <option value="7">7 Tage (ganze Woche)</option>
+              </select></div>
+            <div><label class="label" for="pf-diet">Ernährungsweise</label>
+              <select class="input" id="pf-diet">
+                <option value="Mit Fleisch & Fisch">🥩 Mit Fleisch &amp; Fisch</option>
+                <option value="Vegetarisch">🥦 Vegetarisch</option>
+                <option value="Vegan">🌱 Vegan</option>
+                <option value="Flexitarisch (überwiegend vegetarisch)">🥗 Flexitarisch</option>
+              </select></div>
+            <div><label class="label" for="pf-mealprep">Meal-Prep</label>
+              <select class="input" id="pf-mealprep">
+                <option value="Nein">Nein</option>
+                <option value="Ja, für 3 Tage">Ja, für 3 Tage</option>
+                <option value="Ja, für 5 Tage">Ja, für 5 Tage</option>
+                <option value="Ja, für 7 Tage">Ja, für 7 Tage</option>
+              </select></div>
+            <div><label class="label" for="pf-dinner">Abendessen</label>
+              <select class="input" id="pf-dinner">
+                <option value="kalt">Kalt / schnell</option>
+                <option value="gemischt">Gemischt</option>
+                <option value="warm">Warm</option>
+              </select></div>
+            <div><label class="label" for="pf-batch">Gericht reicht für</label>
+              <select class="input" id="pf-batch">
+                <option value="aus">1 Tag (täglich frisch)</option>
+                <option value="mittag">2 Tage – nur Mittag</option>
+                <option value="beide">2 Tage – Mittag + Abend</option>
+              </select></div>
+            <div><label class="label" for="pf-shopformat">Einkaufsliste</label>
+              <select class="input" id="pf-shopformat">
+                <option value="Beides">Beides (Kategorien + nach Rezept)</option>
+                <option value="Kategorien">Nach Supermarkt-Kategorien</option>
+                <option value="Rezept">Nach Rezept sortiert</option>
+              </select></div>
+          </div>
+
+          <h3 class="subhead">👤 Körperdaten (für die Kalorienberechnung)</h3>
+          <div class="form-grid">
+            <div><label class="label" for="pf-gender">Geschlecht</label>
+              <select class="input" id="pf-gender">
+                <option value="männlich">♂ Männlich</option>
+                <option value="weiblich">♀ Weiblich</option>
+              </select></div>
+            <div><label class="label" for="pf-age">Alter (Jahre)</label>
+              <input class="input" id="pf-age" type="number" inputmode="numeric" placeholder="z. B. 30" min="16" max="99"></div>
+            <div><label class="label" for="pf-height">Größe (cm)</label>
+              <input class="input" id="pf-height" type="number" inputmode="numeric" placeholder="z. B. 178" min="140" max="220"></div>
+            <div><label class="label" for="pf-weight">Gewicht (kg)</label>
+              <input class="input" id="pf-weight" type="number" inputmode="numeric" placeholder="z. B. 80" min="40" max="250"></div>
+            <div><label class="label" for="pf-activity">Aktivitätslevel</label>
+              <select class="input" id="pf-activity">
+                <option value="wenig aktiv (Bürojob, kaum Sport)">🪑 Wenig aktiv (Bürojob)</option>
+                <option value="moderat aktiv (1-3x Sport/Woche)" selected>🚶 Moderat aktiv (1–3x/Woche)</option>
+                <option value="sehr aktiv (4-5x Sport/Woche)">🏋️ Sehr aktiv (4–5x/Woche)</option>
+                <option value="extrem aktiv (täglich intensiv)">⚡ Extrem aktiv (täglich)</option>
+              </select></div>
+            <div><label class="label" for="pf-training">Ø Trainingsverbrauch (kcal/Tag)</label>
+              <input class="input" id="pf-training" type="number" inputmode="numeric" placeholder="optional, z. B. 350" min="0" max="2000"></div>
+          </div>
+
+          <div>
+            <span class="label">Küchen (Mehrfachauswahl)</span>
+            <div class="chips" id="cuisineChips"></div>
+          </div>
+          <div><label class="label" for="pf-allergies">Allergien &amp; Unverträglichkeiten</label>
+            <input class="input" id="pf-allergies" type="text" placeholder="z. B. Laktose, Gluten, Nüsse … (oder leer lassen)" autocomplete="off"></div>
+          <div><label class="label" for="pf-dislikes">Lebensmittel, die du nicht magst</label>
+            <input class="input" id="pf-dislikes" type="text" placeholder="z. B. Fisch, Rosenkohl … (oder leer lassen)" autocomplete="off"></div>
+
+          <div class="row">
+            <button type="submit" class="btn" id="generateBtn">🚀 Plan erstellen</button>
+            <button type="button" class="btn btn--ghost" id="formCancel" hidden>Abbrechen</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- ── Plan wird erstellt ── -->
+    <section data-view="loading" hidden>
+      <div class="loading">
+        <div class="spinner"></div>
+        <p>NutriCoach erstellt deinen Plan …</p>
+        <p class="muted" id="loadingStep">Analysiere deine Präferenzen …</p>
+        <p class="muted">Das dauert meist 1–2 Minuten. App bitte offen lassen.</p>
+      </div>
+    </section>
+
+    <!-- ── Plan ── -->
+    <section data-view="plan" hidden>
+      <div class="row row--between view-head">
+        <div class="grow">
+          <h2 id="planTitle">Dein Ernährungsplan</h2>
+          <p class="muted" id="planSubtitle"></p>
+        </div>
+        <button type="button" class="btn btn--small" data-action="new-plan">✨ Neuer Plan</button>
+      </div>
+      <div class="seg" role="tablist" aria-label="Ansicht">
+        <button type="button" class="seg__btn" data-sub="plan:week" aria-pressed="true">Woche</button>
+        <button type="button" class="seg__btn" data-sub="plan:nutrients" aria-pressed="false">Nährwerte</button>
+        <button type="button" class="seg__btn" data-sub="plan:mealprep" aria-pressed="false">Meal-Prep</button>
+      </div>
+      <div data-subview="plan:week" id="planContent"></div>
+      <div data-subview="plan:nutrients" id="nutrientsContent" hidden></div>
+      <div data-subview="plan:mealprep" id="mealprepContent" hidden></div>
+    </section>
+
+    <!-- ── Einkauf und Vorrat ── -->
+    <section data-view="shopping" hidden>
+      <div class="seg" role="tablist" aria-label="Ansicht">
+        <button type="button" class="seg__btn" data-sub="shop:list" aria-pressed="true">Einkaufsliste</button>
+        <button type="button" class="seg__btn" data-sub="shop:pantry" aria-pressed="false">Vorrat</button>
+      </div>
+      <div data-subview="shop:list">
+        <div class="row toolbar">
+          <button type="button" class="btn btn--ghost btn--small" data-action="clear-checked">Abgehakte löschen</button>
+          <button type="button" class="btn btn--danger btn--small" data-action="clear-shopping">Alle löschen</button>
+        </div>
+        <div id="shoppingContent"></div>
+      </div>
+      <div data-subview="shop:pantry" hidden>
+        <p class="muted">Wird beim nächsten Plan berücksichtigt.</p>
+        <div class="row toolbar">
+          <button type="button" class="btn btn--ghost btn--small" data-action="pantry-add">+ Artikel hinzufügen</button>
+          <button type="button" class="btn btn--danger btn--small" data-action="clear-pantry">Vorrat leeren</button>
+        </div>
+        <form class="card stack" id="pantryForm" hidden novalidate>
+          <h3 class="subhead">Artikel hinzufügen</h3>
+          <div class="form-grid">
+            <div><label class="label" for="pantryName">Artikel</label>
+              <input class="input" id="pantryName" type="text" placeholder="z. B. Reis, Linsen" autocomplete="off" maxlength="60"></div>
+            <div><label class="label" for="pantryAmount">Menge</label>
+              <input class="input" id="pantryAmount" type="text" placeholder="z. B. 500 g, 1 Packung" autocomplete="off" maxlength="30"></div>
+            <div><label class="label" for="pantryCat">Kategorie</label>
+              <select class="input" id="pantryCat">
+                <option>Trockenwaren &amp; Konserven</option>
+                <option>Gemüse &amp; Obst</option>
+                <option>Fleisch &amp; Fisch</option>
+                <option>Kühlregal</option>
+                <option>Tiefkühl</option>
+                <option>Gewürze &amp; Sonstiges</option>
+              </select></div>
+            <div><label class="label" for="pantryShelf">Haltbarkeit</label>
+              <select class="input" id="pantryShelf">
+                <option value="lang">Lang (Monate)</option>
+                <option value="mittel">Mittel (Wochen)</option>
+                <option value="kurz">Kurz (Tage)</option>
+              </select></div>
+          </div>
+          <p class="form-error" id="pantryError" role="alert"></p>
+          <div class="row">
+            <button type="submit" class="btn btn--small">Speichern</button>
+            <button type="button" class="btn btn--ghost btn--small" data-action="pantry-cancel">Abbrechen</button>
+          </div>
+        </form>
+        <div id="pantryContent"></div>
+      </div>
+    </section>
+
+    <!-- ── Rezeptbibliothek ── -->
+    <section data-view="library" hidden>
+      <div class="row row--between view-head">
+        <h2>Rezeptbibliothek</h2>
+        <span class="muted" id="libCount"></span>
+      </div>
+      <input class="input" id="libSearch" type="search" placeholder="Rezept suchen …" aria-label="Rezept suchen" autocomplete="off">
+      <div id="libraryContent"></div>
+    </section>
+
+    <!-- ── Ausgaben und Kassenzettel ── -->
+    <section data-view="receipts" hidden>
+      <div class="row row--between view-head">
+        <div class="grow">
+          <h2>Ausgaben</h2>
+          <p class="muted">Kassenzettel fotografieren, Preise verfolgen.</p>
+        </div>
+        <button type="button" class="btn btn--small" data-action="scan">📷 Scannen</button>
+        <input type="file" id="receiptFile" accept="image/*" hidden>
+      </div>
+      <div class="stats" id="receiptStats"></div>
+      <div id="priceAlerts"></div>
+      <div class="card loading loading--small" id="scanLoading" hidden>
+        <div class="spinner"></div>
+        <p class="muted">Kassenzettel wird gelesen …</p>
+      </div>
+      <div id="scanError"></div>
+      <div id="receiptsContent"></div>
+    </section>
+
+    <!-- ── Mehr: KI, Backup, App ── -->
+    <section data-view="more" hidden>
+      <div class="card stack">
+        <h2>KI</h2>
+        <dl class="facts">
+          <dt>Modell</dt><dd class="mono" id="factModel">–</dd>
+          <dt>Key</dt><dd class="mono" id="factKey">–</dd>
+        </dl>
+        <form class="stack" id="keyForm" novalidate>
+          <div>
+            <label class="label" for="newKey">Neuen API-Key eintragen</label>
+            <input class="input" id="newKey" type="password" placeholder="sk-ant-api03-…" autocomplete="off" autocapitalize="off" spellcheck="false">
+          </div>
+          <p class="form-error" id="keyError" role="alert"></p>
+          <div class="row">
+            <button type="submit" class="btn btn--small">Key speichern</button>
+            <button type="button" class="btn btn--danger btn--small" data-action="remove-key">Key entfernen</button>
+          </div>
+        </form>
+        <p class="muted">Der Key liegt nur auf diesem Gerät und kommt nie ins Backup.</p>
+      </div>
+
+      <div class="card stack">
+        <h2>Backup</h2>
+        <p class="muted" id="backupInfo">–</p>
+        <div class="row">
+          <button type="button" class="btn" data-action="export">Backup exportieren</button>
+          <button type="button" class="btn btn--ghost" data-action="import">Backup einspielen</button>
+          <input type="file" id="importFile" accept=".json,application/json" hidden>
+        </div>
+        <div class="row" id="undoRow" hidden>
+          <button type="button" class="btn btn--ghost" data-action="undo">Letzten Import rückgängig machen</button>
+        </div>
+      </div>
+
+      <div class="card stack">
+        <h2>Daten</h2>
+        <div class="row">
+          <button type="button" class="btn btn--danger btn--small" data-action="clear-plan">Plan löschen</button>
+          <button type="button" class="btn btn--danger btn--small" data-action="clear-library">Bibliothek löschen</button>
+          <button type="button" class="btn btn--danger btn--small" data-action="clear-pantry">Vorrat löschen</button>
+          <button type="button" class="btn btn--danger btn--small" data-action="clear-receipts">Ausgaben löschen</button>
+        </div>
+      </div>
+
+      <div class="card stack">
+        <h2>App</h2>
+        <dl class="facts">
+          <dt>Version</dt><dd class="mono" id="factVersion">–</dd>
+          <dt>Offline-Modus</dt><dd id="factSw">–</dd>
+          <dt>Installiert</dt><dd id="factInstalled">–</dd>
+          <dt>Speicher</dt><dd id="factStatus">–</dd>
+        </dl>
+        <p class="muted" id="problemInfo" hidden></p>
+        <div class="row">
+          <button type="button" class="btn btn--ghost" data-action="check-update">Nach Update suchen</button>
+          <button type="button" class="btn btn--danger" data-action="reset">Alle Daten dieser App löschen</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <nav class="app__nav" id="mainNav" aria-label="Hauptnavigation" hidden>
+    <button type="button" class="nav-btn" data-nav="plan" aria-current="page"><span class="nav-btn__icon" aria-hidden="true">📅</span>Plan</button>
+    <button type="button" class="nav-btn" data-nav="shopping"><span class="nav-btn__icon" aria-hidden="true">🛒</span>Einkauf</button>
+    <button type="button" class="nav-btn" data-nav="library"><span class="nav-btn__icon" aria-hidden="true">📚</span>Rezepte</button>
+    <button type="button" class="nav-btn" data-nav="receipts"><span class="nav-btn__icon" aria-hidden="true">🧾</span>Ausgaben</button>
+    <button type="button" class="nav-btn" data-nav="more"><span class="nav-btn__icon" aria-hidden="true">⚙️</span>Mehr</button>
+  </nav>
+</div>
+
+<!-- Rezept -->
+<dialog class="dialog dialog--wide" id="recipeDialog">
+  <div class="row row--between">
+    <h2 class="grow" id="recipeTitle">Rezept</h2>
+    <button type="button" class="btn btn--ghost btn--small" id="recipeClose">Schließen</button>
+  </div>
+  <div id="recipeBody"></div>
+</dialog>
+
+<!-- Bestätigungsdialog -->
+<dialog class="dialog" id="confirmDialog">
+  <h2 id="confirmTitle">Sicher?</h2>
+  <p id="confirmText"></p>
+  <div class="dialog__actions">
+    <button type="button" class="btn btn--ghost" id="confirmNo">Abbrechen</button>
+    <button type="button" class="btn" id="confirmYes">OK</button>
+  </div>
+</dialog>
+
+<!-- Reihenfolge wichtig: erst Konfiguration und Build-Info, dann die App. -->
+<script src="app.config.js"></script>
+<script src="build.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
