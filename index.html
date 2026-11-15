@@ -261,7 +261,15 @@
         <h2>Rezeptbibliothek</h2>
         <span class="muted" id="libCount"></span>
       </div>
-      <input class="input" id="libSearch" type="search" placeholder="Rezept suchen …" aria-label="Rezept suchen" autocomplete="off">
+      <div class="seg" role="tablist" aria-label="Mahlzeit">
+        <button type="button" class="seg__btn" data-libtype="Mittag" aria-pressed="true">Mittagessen</button>
+        <button type="button" class="seg__btn" data-libtype="Abend" aria-pressed="false">Abendessen</button>
+      </div>
+      <div class="card stack" id="libClassify" hidden>
+        <p class="muted" id="libClassifyText"></p>
+        <div class="row"><button type="button" class="btn btn--small" id="libClassifyBtn" data-action="classify">Von der KI einordnen lassen</button></div>
+      </div>
+      <input class="input" id="libSearch" type="search" placeholder="Rezept suchen (Mittag und Abend) …" aria-label="Rezept suchen" autocomplete="off">
       <div id="libraryContent"></div>
     </section>
 
@@ -364,6 +372,25 @@
     <button type="button" class="btn btn--ghost btn--small" id="recipeClose">Schließen</button>
   </div>
   <div id="recipeBody"></div>
+</dialog>
+
+<!-- Meal-Prep: Tage -->
+<dialog class="dialog" id="daysDialog">
+  <form class="stack" id="daysForm" novalidate>
+    <h2>Kochen für wie viele Tage?</h2>
+    <p><b id="daysDish"></b></p>
+    <p class="muted" id="daysBase"></p>
+    <div>
+      <label class="label" for="daysInput">Tage (1–14)</label>
+      <input class="input" id="daysInput" type="number" inputmode="numeric" min="1" max="14" step="1">
+    </div>
+    <p class="form-error" id="daysError" role="alert"></p>
+    <div class="dialog__actions">
+      <button type="button" class="btn btn--ghost" id="daysReset">Wie im Plan</button>
+      <button type="button" class="btn btn--ghost" id="daysCancel">Abbrechen</button>
+      <button type="submit" class="btn">Übernehmen</button>
+    </div>
+  </form>
 </dialog>
 
 <!-- Bestätigungsdialog -->

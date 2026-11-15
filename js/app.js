@@ -39,10 +39,12 @@ const state = {
   shopping: await store.get('shopping', {}),
   library: await store.get('library', []),
   pantry: await store.get('pantry', []),
-  receipts: await store.get('receipts', [])
+  receipts: await store.get('receipts', []),
+  mpDays: await store.get('mealprep_days', {})
 };
 for (const name of ['library', 'pantry', 'receipts']) if (!Array.isArray(state[name])) state[name] = [];
 if (!state.shopping || typeof state.shopping !== 'object') state.shopping = {};
+if (!state.mpDays || typeof state.mpDays !== 'object') state.mpDays = {};
 if (state.plan && !Array.isArray(state.plan)) state.plan = null;
 
 async function save(name, value) {
@@ -137,6 +139,19 @@ const CUISINE_LABELS = {
   asiatisch: 'Asiatisch', orientalisch: 'Orientalisch', indisch: 'Indisch', mexikanisch: 'Mexikanisch'
 };
 const DEFAULT_CUISINES = ['deutsch', 'mediterran'];
+const CUISINE_WORDS = [
+  ['deutsch', /deutsch|hausmann/], ['mediterran', /mediterran|italien|griech|spanisch/], ['skandinavisch', /skandinav|schwed|dänisch|daenisch|norweg|nordisch/],
+  ['franzoesisch', /franz|bistro/], ['asiatisch', /asiat|thai|japan|korea|vietnam|chines/], ['orientalisch', /orient|türk|tuerk|libanes|persisch|arab/],
+  ['indisch', /indisch/], ['mexikanisch', /mexik/]
+];
+/** Küchen-Angabe (Schlüssel oder freier Text der KI) auf einen Schlüssel abbilden. null = unbekannt. */
+function normalizeCuisine(value) {
+  const text = String(value || '').toLowerCase().trim();
+  if (!text) return null;
+  if (CUISINES[text]) return text;
+  const hit = CUISINE_WORDS.find(([, pattern]) => pattern.test(text));
+  return hit ? hit[0] : null;
+}
 const FIELDS = ['goal', 'budget', 'persons', 'days', 'diet', 'mealprep', 'dinner', 'batch', 'shopformat', 'gender', 'age', 'height', 'weight', 'activity', 'training', 'allergies', 'dislikes'];
 
 function buildCuisineChips() {
@@ -282,7 +297,7 @@ Das JSON-Objekt muss exakt folgende Struktur haben:
       "meals": [
         {
           "type": "Mittag",
-          "cuisine": "zugeteilte Küche laut Zuteilung",
+          "cuisine": "Schlüssel der zugeteilten Küche: deutsch | mediterran | skandinavisch | franzoesisch | asiatisch | orientalisch | indisch | mexikanisch",
           "name": "Gerichtname",
           "mealprep": true/false,
           "calories": 650,
@@ -441,7 +456,7 @@ function autoSaveToLibrary(plan) {
     for (const meal of meals(day)) {
       if (!meal.name || known.has(meal.name)) continue;
       state.library.push({
-        id: newId(), name: meal.name, type: meal.type, calories: meal.calories, protein: meal.protein, carbs: meal.carbs, fat: meal.fat,
+        id: newId(), name: meal.name, type: meal.type, cuisine: normalizeCuisine(meal.cuisine), calories: meal.calories, protein: meal.protein, carbs: meal.carbs, fat: meal.fat,
         time: meal.time, difficulty: meal.difficulty, servings: meal.servings, ingredients: meal.ingredients, steps: meal.steps,
         mealprepTip: meal.mealprepTip, savedAt: today()
       });
@@ -572,17 +587,23 @@ function renderNutrients() {
     <div class="nutr-grid">${cards}</div>`;
 }
 
-/** Meal-Prep-Gerichte, jedes nur einmal, mit den Tagen. */
+/** Meal-Prep-Gerichte, jedes nur einmal, mit allen Tagen (auch Reste-Tage). */
 function mealprepList() {
   const seen = new Map();
   for (const day of state.plan || []) {
     for (const meal of meals(day)) {
-      if (!meal.mealprep || meal.leftover) continue;
-      if (!seen.has(meal.name)) seen.set(meal.name, { meal, days: [day.day] });
-      else seen.get(meal.name).days.push(day.day);
+      if (!meal.mealprep || !meal.name) continue;
+      if (!seen.has(meal.name)) seen.set(meal.name, { meal: meal.leftover ? { ...meal, leftover: false } : meal, days: [] });
+      const entry = seen.get(meal.name);
+      if (!meal.leftover) entry.meal = meal;
+      if (!entry.days.includes(day.day)) entry.days.push(day.day);
     }
   }
-  return [...seen.values()];
+  return [...seen.values()].map(entry => {
+    const baseDays = Math.max(1, entry.days.length);
+    const wanted = parseInt(state.mpDays[entry.meal.name], 10) || baseDays;
+    return { ...entry, baseDays, wanted, factor: wanted / baseDays };
+  });
 }
 
 function renderMealprep() {
@@ -590,21 +611,73 @@ function renderMealprep() {
   if (!state.plan) { box.innerHTML = emptyState('🍱', 'Noch kein Plan vorhanden'); return; }
   const list = mealprepList();
   if (!list.length) { box.innerHTML = emptyState('🍱', 'Keine Meal-Prep-Gerichte im Plan', 'Erstelle einen neuen Plan mit Meal-Prep.'); return; }
-  box.innerHTML = `<p class="muted">Diese ${list.length} Gerichte eignen sich zum Vorkochen.</p>
-    <div class="tiles">${list.map(({ meal, days }, i) => `<div class="tile tile--accent">
-      <div class="tile__name">${esc(meal.name)}</div>
-      <div class="tile__meta">${esc(meal.type)} · ⏱ ${esc(meal.time)} min</div>
-      ${macrosHtml(meal, true)}
-      ${meal.mealprepTip ? `<div class="tile__tip">💡 ${esc(meal.mealprepTip)}</div>` : ''}
+  box.innerHTML = `<p class="muted">Diese ${list.length} Gerichte eignen sich zum Vorkochen. Tippe auf „Kochen für …“, um die Menge anzupassen.</p>
+    <div class="tiles">${list.map((entry, i) => `<div class="tile tile--accent">
+      <div class="tile__name">${esc(entry.meal.name)}</div>
+      <div class="tile__meta">${esc(entry.meal.type)} · ⏱ ${esc(entry.meal.time)} min · im Plan: ${entry.baseDays} ${entry.baseDays === 1 ? 'Tag' : 'Tage'} (${esc(entry.days.join(', '))})</div>
+      ${macrosHtml(entry.meal, true)}
+      ${entry.meal.mealprepTip ? `<div class="tile__tip">💡 ${esc(entry.meal.mealprepTip)}</div>` : ''}
       <div class="tile__actions">
         <button type="button" class="btn btn--ghost btn--small" data-recipe="mp:${i}">📋 Rezept</button>
-        <span class="badge badge--accent">📅 ${days.length} Tag(e): ${esc(days.join(', '))}</span>
+        <button type="button" class="btn btn--small${entry.factor === 1 ? ' btn--ghost' : ''}" data-mp-days="${i}">🍳 Kochen für ${entry.wanted} ${entry.wanted === 1 ? 'Tag' : 'Tage'} ✎</button>
       </div>
     </div>`).join('')}</div>`;
 }
 
+let mpEditIndex = null;
+function openDaysDialog(index) {
+  const entry = mealprepList()[index];
+  if (!entry) return;
+  mpEditIndex = index;
+  $('daysDish').textContent = entry.meal.name;
+  $('daysBase').textContent = `Das Rezept im Plan reicht für ${entry.baseDays} ${entry.baseDays === 1 ? 'Tag' : 'Tage'}. Die Mengen werden entsprechend umgerechnet.`;
+  $('daysInput').value = entry.wanted;
+  $('daysError').textContent = '';
+  $('daysDialog').showModal();
+  $('daysInput').select();
+}
+
+async function saveDays(reset = false) {
+  const entry = mealprepList()[mpEditIndex];
+  if (!entry) { $('daysDialog').close(); return; }
+  const next = { ...state.mpDays };
+  if (reset) delete next[entry.meal.name];
+  else {
+    const value = parseInt($('daysInput').value, 10);
+    if (!(value >= 1 && value <= 14)) { $('daysError').textContent = 'Bitte 1 bis 14 Tage eingeben.'; return; }
+    if (value === entry.baseDays) delete next[entry.meal.name]; else next[entry.meal.name] = value;
+  }
+  if (!(await save('mealprep_days', next))) return;
+  state.mpDays = next;
+  $('daysDialog').close();
+  renderMealprep();
+}
+
+// ── Mengen umrechnen ──
+const FRACTIONS = { '½': 0.5, '¼': 0.25, '¾': 0.75, '⅓': 1 / 3, '⅔': 2 / 3 };
+function formatAmount(value, unit) {
+  let rounded;
+  if (/^\s*(g|ml|gramm)\b/i.test(unit) && value >= 20) rounded = Math.round(value / 5) * 5;
+  else if (value >= 10) rounded = Math.round(value);
+  else rounded = Math.max(0.5, Math.round(value * 2) / 2);
+  return rounded.toLocaleString('de-DE', { maximumFractionDigits: 1, useGrouping: false });
+}
+/** Alle Mengenzahlen in einer Angabe wie "2 Scheiben (80g)" mit dem Faktor multiplizieren. */
+function scaleAmount(text, factor) {
+  const raw = String(text ?? '');
+  if (factor === 1 || !raw) return raw;
+  return raw.replace(/(\d+(?:[.,]\d+)?\s*\/\s*\d+|\d+(?:[.,]\d+)?|[½¼¾⅓⅔])(\s*[a-zA-ZäöüÄÖÜ]*)/g, (match, number, unit) => {
+    let value;
+    if (FRACTIONS[number]) value = FRACTIONS[number];
+    else if (number.includes('/')) { const [a, b] = number.split('/').map(part => num(part)); value = b ? a / b : a; }
+    else value = num(number);
+    if (!value) return match;
+    return formatAmount(value * factor, unit) + unit;
+  });
+}
+
 // ── 7. Rezept-Dialog ────────────────────────────────────────
-function showRecipe(meal) {
+function showRecipe(meal, { factor = 1, days = null, libId = null } = {}) {
   if (!meal) { toast('Rezept nicht gefunden.'); return; }
   $('recipeTitle').textContent = meal.name || 'Rezept';
   const ingredients = Array.isArray(meal.ingredients) ? meal.ingredients : [];
@@ -614,7 +687,7 @@ function showRecipe(meal) {
       ${meal.type ? `<span class="badge">🍽 ${esc(meal.type)}</span>` : ''}
       ${meal.time ? `<span class="badge">⏱ ${esc(meal.time)} min</span>` : ''}
       ${meal.difficulty ? `<span class="badge">📊 ${esc(meal.difficulty)}</span>` : ''}
-      ${meal.servings ? `<span class="badge">👥 ${esc(meal.servings)} Portionen</span>` : ''}
+      ${meal.servings ? `<span class="badge">👥 ${esc(factor === 1 ? meal.servings : formatAmount(num(meal.servings) * factor, ''))} Portionen</span>` : ''}
       ${meal.mealprep ? '<span class="badge badge--accent">🍱 Meal-Prep</span>' : ''}
     </div>
     <div class="recipe-macros">
@@ -623,21 +696,30 @@ function showRecipe(meal) {
       <div class="stat"><div class="stat__val c-carbs">${esc(meal.carbs)}g</div><div class="stat__label">Kohlenhydrate</div></div>
       <div class="stat"><div class="stat__val c-fat">${esc(meal.fat)}g</div><div class="stat__label">Fett</div></div>
     </div>
-    <div class="recipe-section">🥦 Zutaten</div>
+    ${days ? `<div class="hint">🍳 Mengen umgerechnet für <b>${days.wanted} ${days.wanted === 1 ? 'Tag' : 'Tage'}</b> (Rezept im Plan: ${days.baseDays}). Nährwerte gelten weiter pro Mahlzeit.</div>` : ''}
+    ${libId ? `<div class="recipe-cuisine"><label class="label" for="recipeCuisine">Küche</label>
+      <select class="input" id="recipeCuisine" data-lib-cuisine="${esc(libId)}">
+        <option value="">Ohne Zuordnung</option>
+        ${Object.entries(CUISINE_LABELS).map(([key, label]) => `<option value="${key}"${meal.cuisine === key ? ' selected' : ''}>${esc(label)}</option>`).join('')}
+      </select></div>` : ''}
+    <div class="recipe-section">🥦 Zutaten${factor === 1 ? '' : ` (für ${days ? days.wanted + ' Tage' : '×' + formatAmount(factor, '')})`}</div>
     <ul class="ingredients">${ingredients.map(ing => `<li><span>${esc(ing && ing.name)}</span>
-      <span class="ingredients__amount"><span>${esc(ing && ing.amount)}</span>${ing && ing.alt ? `<span class="ingredients__alt">Alt: ${esc(ing.alt)}</span>` : ''}</span></li>`).join('')}</ul>
+      <span class="ingredients__amount"><span>${esc(scaleAmount(ing && ing.amount, factor))}</span>${ing && ing.alt ? `<span class="ingredients__alt">Alt: ${esc(ing.alt)}</span>` : ''}</span></li>`).join('')}</ul>
     <div class="recipe-section">👨‍🍳 Zubereitung</div>
     <ol class="steps">${steps.map(step => `<li><span>${esc(step)}</span></li>`).join('')}</ol>
     ${meal.mealprepTip ? `<div class="recipe-section">🍱 Meal-Prep-Hinweise</div><div class="hint">💡 ${esc(meal.mealprepTip)}</div>` : ''}`;
   $('recipeDialog').showModal();
 }
 
-function recipeFromRef(ref) {
+function openRecipeRef(ref) {
   const [kind, a, b] = ref.split(':');
-  if (kind === 'plan') return meals(state.plan && state.plan[Number(a)])[Number(b)];
-  if (kind === 'mp') { const item = mealprepList()[Number(a)]; return item && item.meal; }
-  if (kind === 'lib') return state.library.find(recipe => String(recipe.id) === a);
-  return null;
+  if (kind === 'plan') return showRecipe(meals(state.plan && state.plan[Number(a)])[Number(b)]);
+  if (kind === 'mp') {
+    const entry = mealprepList()[Number(a)];
+    return showRecipe(entry && entry.meal, entry ? { factor: entry.factor, days: entry } : {});
+  }
+  if (kind === 'lib') return showRecipe(state.library.find(recipe => String(recipe.id) === a), { libId: a });
+  showRecipe(null);
 }
 
 // ── 8. Einkaufsliste ────────────────────────────────────────
@@ -687,22 +769,99 @@ function renderPantry() {
 }
 
 // ── 10. Bibliothek ──────────────────────────────────────────
+let libType = 'Mittag';
+const libTypeOf = recipe => (/abend/i.test(String(recipe.type || '')) ? 'Abend' : 'Mittag');
+const CUISINE_ORDER = [...Object.keys(CUISINE_LABELS), null];
+
+/** Küche aus dem aktuellen Plan übernehmen, wo die Bibliothek sie noch nicht kennt. */
+async function backfillLibraryCuisine() {
+  const fromPlan = new Map();
+  for (const day of state.plan || []) for (const meal of meals(day)) { const key = normalizeCuisine(meal.cuisine); if (key) fromPlan.set(meal.name, key); }
+  let changed = false;
+  for (const recipe of state.library) {
+    const known = normalizeCuisine(recipe.cuisine);
+    if (recipe.cuisine && known !== recipe.cuisine) { recipe.cuisine = known; changed = true; }
+    if (!known && fromPlan.has(recipe.name)) { recipe.cuisine = fromPlan.get(recipe.name); changed = true; }
+  }
+  if (changed) await save('library', state.library);
+}
+
+function libraryGroupsHtml(list, open) {
+  const groups = new Map(CUISINE_ORDER.map(key => [key, []]));
+  for (const recipe of list) groups.get(CUISINES[recipe.cuisine] ? recipe.cuisine : null).push(recipe);
+  return [...groups.entries()].filter(([, items]) => items.length).map(([key, items]) => `<details class="lib-group"${open ? ' open' : ''}>
+    <summary class="lib-group__head"><span>${esc(key ? CUISINE_LABELS[key] : 'Ohne Zuordnung')}</span><span class="lib-group__count">${items.length}</span></summary>
+    <div class="tiles">${items.slice().sort((x, y) => String(x.name).localeCompare(String(y.name), 'de')).map(recipe => `<div class="tile">
+      <div class="tile__name">${esc(recipe.name)}</div>
+      <div class="tile__meta">⏱ ${esc(recipe.time)} min · ${esc(recipe.difficulty)} · ${esc(recipe.savedAt)}</div>
+      <div class="macros"><span class="macro c-protein">${esc(recipe.protein)}g Eiweiß</span><span class="macro">🔥 ${esc(recipe.calories)} kcal</span></div>
+      <div class="tile__actions">
+        <button type="button" class="btn btn--ghost btn--small" data-recipe="lib:${esc(recipe.id)}">📋 Rezept</button>
+        <button type="button" class="icon-btn icon-btn--danger" data-lib-remove="${esc(recipe.id)}" aria-label="${esc(recipe.name)} löschen">🗑</button>
+      </div>
+    </div>`).join('')}</div>
+  </details>`).join('');
+}
+
 function renderLibrary() {
   const box = $('libraryContent');
   $('libCount').textContent = `${state.library.length} Rezepte`;
+  for (const button of document.querySelectorAll('[data-libtype]')) {
+    const count = state.library.filter(recipe => libTypeOf(recipe) === button.dataset.libtype).length;
+    button.textContent = `${button.dataset.libtype === 'Mittag' ? 'Mittagessen' : 'Abendessen'} (${count})`;
+    button.setAttribute('aria-pressed', String(button.dataset.libtype === libType));
+  }
+  const missing = state.library.filter(recipe => !CUISINES[recipe.cuisine]).length;
+  $('libClassify').hidden = missing === 0;
+  $('libClassifyText').textContent = `${missing} ${missing === 1 ? 'Rezept ist' : 'Rezepte sind'} noch keiner Küche zugeordnet.`;
   if (!state.library.length) { box.innerHTML = emptyState('📚', 'Bibliothek ist leer', 'Rezepte werden beim Erstellen eines Plans automatisch gespeichert.'); return; }
+
   const query = $('libSearch').value.trim().toLowerCase();
-  const list = state.library.filter(recipe => !query || String(recipe.name).toLowerCase().includes(query));
-  if (!list.length) { box.innerHTML = emptyState('🔍', 'Kein Rezept gefunden'); return; }
-  box.innerHTML = `<div class="tiles">${list.slice().reverse().map(recipe => `<div class="tile">
-    <div class="tile__name">${esc(recipe.name)}</div>
-    <div class="tile__meta">${esc(recipe.type)} · ⏱ ${esc(recipe.time)} min · ${esc(recipe.difficulty)} · ${esc(recipe.savedAt)}</div>
-    <div class="macros"><span class="macro c-protein">${esc(recipe.protein)}g Eiweiß</span><span class="macro">🔥 ${esc(recipe.calories)} kcal</span></div>
-    <div class="tile__actions">
-      <button type="button" class="btn btn--ghost btn--small" data-recipe="lib:${esc(recipe.id)}">📋 Rezept</button>
-      <button type="button" class="icon-btn icon-btn--danger" data-lib-remove="${esc(recipe.id)}" aria-label="${esc(recipe.name)} löschen">🗑</button>
-    </div>
-  </div>`).join('')}</div>`;
+  if (query) {
+    const hits = state.library.filter(recipe => String(recipe.name).toLowerCase().includes(query));
+    if (!hits.length) { box.innerHTML = emptyState('🔍', 'Kein Rezept gefunden'); return; }
+    box.innerHTML = ['Mittag', 'Abend'].map(type => {
+      const list = hits.filter(recipe => libTypeOf(recipe) === type);
+      return list.length ? `<h3 class="subhead lib-type">${type === 'Mittag' ? 'Mittagessen' : 'Abendessen'}</h3>${libraryGroupsHtml(list, true)}` : '';
+    }).join('');
+    return;
+  }
+  const list = state.library.filter(recipe => libTypeOf(recipe) === libType);
+  box.innerHTML = list.length ? libraryGroupsHtml(list, false) : emptyState('📚', `Noch keine ${libType === 'Mittag' ? 'Mittagessen' : 'Abendessen'} gespeichert`);
+}
+
+let classifying = false;
+async function classifyLibrary() {
+  if (classifying) return;
+  const missing = state.library.filter(recipe => !CUISINES[recipe.cuisine]);
+  if (!missing.length) return;
+  if (!(await ai.hasKey())) { toast('Bitte zuerst einen API-Key eintragen.'); return; }
+  classifying = true;
+  const button = $('libClassifyBtn');
+  button.disabled = true;
+  button.textContent = 'KI ordnet ein …';
+  try {
+    const keys = Object.keys(CUISINES);
+    const prompt = `Ordne jedes Gericht genau einer Küche zu. Erlaubte Schlüssel: ${keys.join(', ')}.
+Wenn keine passt, nimm die ähnlichste. Antworte NUR mit einem JSON-Objekt {"Nummer": "schlüssel"}, z.B. {"0": "deutsch"}.
+
+${missing.map((recipe, i) => `${i}: ${recipe.name}`).join('\n')}`;
+    const data = await ai.ask({ messages: [{ role: 'user', content: prompt }], maxTokens: 3000, temperature: null });
+    const result = ai.parseJson(data);
+    let done = 0;
+    missing.forEach((recipe, i) => {
+      const key = normalizeCuisine(result && result[String(i)]);
+      if (key) { recipe.cuisine = key; done++; }
+    });
+    if (await save('library', state.library)) toast(`${done} von ${missing.length} Rezepten eingeordnet. Falsch? Im Rezept unter „Küche“ ändern.`, 6000);
+  } catch (error) {
+    toast(error instanceof AIError ? error.message : 'Einordnen fehlgeschlagen.', 6000);
+  } finally {
+    classifying = false;
+    button.disabled = false;
+    button.textContent = 'Von der KI einordnen lassen';
+    renderLibrary();
+  }
 }
 
 // ── 11. Kassenzettel ────────────────────────────────────────
@@ -910,6 +1069,7 @@ async function importBackup(file) {
 
 // ── 13. Start ───────────────────────────────────────────────
 document.title = config.name;
+await backfillLibraryCuisine();
 $('setupKeyLink').href = (config.ai && config.ai.keyUrl) || 'https://console.anthropic.com';
 buildCuisineChips();
 
@@ -937,8 +1097,14 @@ document.addEventListener('click', async event => {
   const sub = event.target.closest('[data-sub]');
   if (sub) { showSub(sub.dataset.sub); return; }
 
+  const typeButton = event.target.closest('[data-libtype]');
+  if (typeButton) { libType = typeButton.dataset.libtype; renderLibrary(); return; }
+
+  const mpDays = event.target.closest('[data-mp-days]');
+  if (mpDays) { openDaysDialog(Number(mpDays.dataset.mpDays)); return; }
+
   const recipe = event.target.closest('[data-recipe]');
-  if (recipe) { showRecipe(recipeFromRef(recipe.dataset.recipe)); return; }
+  if (recipe) { openRecipeRef(recipe.dataset.recipe); return; }
 
   const dayHead = event.target.closest('[data-action="toggle-day"]');
   if (dayHead) {
@@ -997,6 +1163,7 @@ async function clearData(name, value, { title, text, done }) {
 async function runAction(name) {
   switch (name) {
     case 'new-plan': openForm(); break;
+    case 'classify': await classifyLibrary(); break;
     case 'import': $('importFile').click(); break;
     case 'export': await exportBackup(); break;
     case 'scan': $('receiptFile').click(); break;
@@ -1127,3 +1294,16 @@ $('importFile').addEventListener('change', event => {
 
 $('recipeClose').addEventListener('click', () => $('recipeDialog').close());
 $('recipeDialog').addEventListener('click', event => { if (event.target === $('recipeDialog')) $('recipeDialog').close(); });
+
+$('recipeBody').addEventListener('change', async event => {
+  const id = event.target.dataset.libCuisine;
+  if (!id) return;
+  const recipe = state.library.find(entry => String(entry.id) === id);
+  if (!recipe) return;
+  recipe.cuisine = normalizeCuisine(event.target.value);
+  if (await save('library', state.library)) { toast('Küche geändert.'); renderLibrary(); }
+});
+
+$('daysForm').addEventListener('submit', event => { event.preventDefault(); saveDays(); });
+$('daysReset').addEventListener('click', () => saveDays(true));
+$('daysCancel').addEventListener('click', () => $('daysDialog').close());

@@ -20,7 +20,7 @@ async def wait_true(page, expr, timeout=15000):
     raise TimeoutError(expr)
 
 def meal(name, typ, mealprep=False):
-    return {'type': typ, 'name': name, 'mealprep': mealprep, 'calories': 600, 'protein': 40, 'carbs': 50, 'fat': 20, 'time': 20,
+    return {'type': typ, 'cuisine': 'deutsch', 'name': name, 'mealprep': mealprep, 'calories': 600, 'protein': 40, 'carbs': 50, 'fat': 20, 'time': 20,
             'difficulty': 'Einfach', 'servings': 2, 'ingredients': [{'name': 'Linsen', 'amount': '200g', 'alt': None}],
             'steps': ['Kochen.', 'Essen.'], 'mealprepTip': 'Hält 3 Tage' if mealprep else None}
 
@@ -56,7 +56,12 @@ async def main():
             await route.fulfill(status=401, content_type='application/json', body=json.dumps({'type': 'error', 'error': {'type': 'authentication_error', 'message': 'invalid x-api-key'}}), headers={'access-control-allow-origin': '*'}); return
         content = body['messages'][0]['content']
         is_image = isinstance(content, list)
-        payload = receipt(mode['price']) if is_image else PLAN
+        if not is_image and 'Ordne jedes Gericht' in content:
+            import re as _re
+            idx = _re.findall(r'^(\d+): ', content, _re.M)
+            payload = {i: ('mediterran' if int(i) % 2 else 'deutsch') for i in idx}
+        else:
+            payload = receipt(mode['price']) if is_image else PLAN
         text = '```json\n' + json.dumps(payload) + '\n```'
         await route.fulfill(status=200, content_type='application/json', headers={'access-control-allow-origin': '*'},
                             body=json.dumps({'content': [{'type': 'text', 'text': text}], 'stop_reason': 'end_turn'}))
@@ -100,6 +105,32 @@ async def main():
             else:
                 await page.wait_for_selector('[data-view="form"]:not([hidden])'); check('Ohne Plan: Formular', True)
 
+            # Meal-Prep aus dem alten Plan: Reste-Tag zählt mit
+            old_plan = old.get('nc_plan') or []
+            if any(m.get('leftover') and m.get('mealprep') for d in old_plan for m in d.get('meals', [])):
+                await page.click('[data-sub="plan:mealprep"]')
+                check('Meal-Prep zählt Reste-Tag mit (2 Tage)', 'im Plan: 2 Tage' in await page.text_content('#mealprepContent'), (await page.text_content('#mealprepContent'))[:160])
+                await page.click('[data-sub="plan:week"]')
+
+            # Bibliothek: Mittag/Abend, Küchen, KI-Einordnung
+            await page.click('[data-nav="library"]')
+            n_mittag = sum(1 for r in (old.get('nc_library') or []) if 'abend' not in str(r.get('type', '')).lower())
+            check('Bibliothek: Reiter Mittagessen mit Anzahl', f'Mittagessen ({n_mittag})' in await page.text_content('[data-libtype="Mittag"]'))
+            if not await page.is_hidden('#libClassify'):
+                await page.click('#libClassifyBtn'); await wait_true(page, "document.getElementById('libClassify').hidden")
+                lib_after = json.loads((await ls())['nutricoach.library'])
+                check('KI ordnet alle alten Rezepte einer Küche zu', all(r.get('cuisine') in ('deutsch', 'mediterran', 'skandinavisch', 'franzoesisch', 'asiatisch', 'orientalisch', 'indisch', 'mexikanisch') for r in lib_after))
+            groups = await page.locator('#libraryContent .lib-group').count()
+            check('Bibliothek nach Küchen gruppiert', groups >= 1, f'{groups} Gruppen')
+            await page.click('[data-libtype="Abend"]')
+            check('Umschalten auf Abendessen', await page.get_attribute('[data-libtype="Abend"]', 'aria-pressed') == 'true')
+            if await page.locator('#libraryContent .lib-group').count():
+                await page.locator('#libraryContent .lib-group summary').first.click()
+                await page.locator('#libraryContent [data-recipe^="lib:"]').first.click(); await page.wait_for_selector('#recipeDialog[open]')
+                await page.select_option('#recipeCuisine', 'indisch'); await asyncio.sleep(0.3); await page.click('#recipeClose')
+                check('Küche im Rezept von Hand ändern', 'Indisch' in await page.text_content('#libraryContent'))
+            await page.click('[data-nav="plan"]')
+
             # Neuer Plan über die (simulierte) KI
             if has_plan: await page.click('[data-action="new-plan"]')
             await page.wait_for_selector('[data-view="form"]:not([hidden])')
@@ -116,6 +147,14 @@ async def main():
             check('Rezepte in Bibliothek, Grundzutat (Linsen) im Vorrat', 'Linseneintopf' in libn and any('Linsen' in n for n in pan), f'{len(libn)} Rezepte, letzte: {libn[-3:]}, Vorrat {len(pan)}')
             await page.click('[data-sub="plan:mealprep"]')
             check('Meal-Prep-Ansicht', 'Testgericht Mo' in await page.text_content('#mealprepContent'))
+            await page.locator('[data-mp-days]').first.click(); await page.wait_for_selector('#daysDialog[open]')
+            await page.fill('#daysInput', '4'); await page.click('#daysForm button[type=submit]')
+            check('Meal-Prep: Kochen für 4 Tage gespeichert', 'Kochen für 4 Tage' in await page.text_content('#mealprepContent'))
+            await page.locator('[data-recipe^="mp:"]').first.click(); await page.wait_for_selector('#recipeDialog[open]')
+            body = await page.text_content('#recipeBody')
+            check('Meal-Prep: Mengen umgerechnet (200g → 800g, 2 → 8 Portionen)', '800g' in body and '8 Portionen' in body, body[:200])
+            await page.click('#recipeClose')
+            check('Neue Rezepte bekommen die Küche', all(r.get('cuisine') for r in json.loads((await ls())['nutricoach.library']) if r.get('name') in ('Linseneintopf', 'Wrap')))
             await page.click('[data-sub="plan:nutrients"]')
             check('Nährwerte: 3 Tage à 1200 kcal = 3600', '3600' in await page.text_content('#nutrientsContent'))
 
