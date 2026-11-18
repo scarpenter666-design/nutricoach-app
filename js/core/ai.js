@@ -217,25 +217,30 @@ export function createAI({ store, keyName = 'apikey' }) {
    * @param {number}  [options.maxTokens=4000]
    * @param {number|null} [options.temperature]  Standard aus app.config.js
    * @param {boolean} [options.stream=false]     für lange Antworten: als Datenstrom lesen
+   * @param {object|null} [options.thinking]     Denk-Einstellung der Schnittstelle, z. B. { type: 'between_tools' }.
+   *                                            Lehnt die Schnittstelle das Feld ab, wird einmal ohne es versucht.
    * @returns {Promise<object>} Antwort der Schnittstelle (content, stop_reason, …)
    */
-  async function ask({ system, messages, maxTokens = 4000, temperature = cfg.temperature ?? null, stream = false }) {
+  async function ask({ system, messages, maxTokens = 4000, temperature = cfg.temperature ?? null, stream = false, thinking = null }) {
     if (!(await hasKey())) throw new AIError('no-key', 'Es ist noch kein API-Key eingetragen.');
     const body = { model: cfg.model, max_tokens: maxTokens, messages };
     if (system) body.system = system;
     if (temperature !== null && temperature !== undefined) body.temperature = temperature;
+    if (thinking) body.thinking = thinking;
     const timeout = cfg.timeoutSeconds || 180;
 
     if (stream) {
-      try {
-        return await sendStream(body);
-      } catch (error) {
-        // Manche Modelle nehmen "temperature" nicht an. Dann einmal ohne versuchen.
-        if (error instanceof AIError && error.status === 400 && 'temperature' in body && /temperature/i.test(error.message)) {
-          delete body.temperature;
+      // Nimmt das Modell "temperature" oder "thinking" nicht an (Fehler 400), das Feld weglassen und neu versuchen.
+      for (let attempt = 0; ; attempt++) {
+        try {
           return await sendStream(body);
+        } catch (error) {
+          const bad = error instanceof AIError && error.status === 400 && attempt < 2
+            ? ['temperature', 'thinking'].find(field => field in body && new RegExp(field, 'i').test(error.message))
+            : null;
+          if (!bad) throw error;
+          delete body[bad];
         }
-        throw error;
       }
     }
 

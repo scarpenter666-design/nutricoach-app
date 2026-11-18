@@ -156,6 +156,7 @@ async def main():
             check('KI-Aufruf: Modell aus Konfiguration, Key im Header, Browser-Freigabe',
                   req['body'].get('model') == 'claude-sonnet-5-5' and req['headers'].get('x-api-key') == KEY and req['headers'].get('anthropic-dangerous-direct-browser-access') == 'true', req['body'].get('model'))
             check('Plan wird als Datenstrom angefordert (stream: true)', req['body'].get('stream') is True)
+            check('Plan: kein Vorab-Denken, 32000 Tokens Platz (Denken zählt zu max_tokens)', req['body'].get('thinking') == {'type': 'between_tools'} and req['body'].get('max_tokens') == 32000, (req['body'].get('thinking'), req['body'].get('max_tokens')))
             check('Neuer Plan: 3 Tage angezeigt', await page.locator('#planContent .day').count() == 3)
             check('KI-Text wird als Text gezeigt, nicht als HTML', await page.locator('#xss').count() == 0 and '<img' in await page.text_content('#planContent'))
             data = await ls()
