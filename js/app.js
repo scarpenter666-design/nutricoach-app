@@ -194,6 +194,7 @@ function readForm() {
   profile.allergies = profile.allergies || 'keine';
   profile.dislikes = profile.dislikes || 'keine';
   profile.training = profile.training || '0';
+  profile.startday = $('pf-startday').value;
   const chosen = [...document.querySelectorAll('input[name="pf-cuisine"]:checked')].map(box => box.value);
   profile.cuisines = chosen.length ? chosen : DEFAULT_CUISINES;
   return profile;
@@ -207,6 +208,7 @@ function openForm() {
     : 'Beantworte kurz ein paar Fragen, damit ich den passenden Plan für dich erstellen kann.';
   $('formCancel').hidden = !isNew;
   fillForm();
+  $('pf-startday').value = String((new Date().getDay() + 6) % 7); // heute vorwählen (getDay: So = 0, bei uns Mo = 0)
   showView('form');
 }
 
@@ -236,10 +238,12 @@ async function recordMealHistory(plan) {
 }
 
 /** Feste Küchen-Zuteilung je Mahlzeit. Mittag und Abend unterscheiden sich, über die Tage wird rotiert. */
-async function buildCuisineSchedule(selected, days, batch) {
+async function buildCuisineSchedule(selected, days, batch, startDay) {
   const sel = (selected && selected.length ? selected : DEFAULT_CUISINES).filter(key => CUISINES[key]);
   const count = Math.max(1, Math.min(7, parseInt(days, 10) || 5));
   const flags = batchFlags(batch);
+  const start = ((parseInt(startDay, 10) || 0) % 7 + 7) % 7; // 0 = Montag; fehlt der Wert (altes Profil), bleibt es bei Montag
+  const dayName = n => WEEKDAYS[(start + n) % 7];
   const offset = parseInt(await store.get('cuisine_idx', 0), 10) || 0;
   await save('cuisine_idx', (offset + 1) % Math.max(sel.length, 1));
   const schedule = [];
@@ -251,9 +255,9 @@ async function buildCuisineSchedule(selected, days, batch) {
     if (dinner === lunch && sel.length > 1) dinner = sel[(sel.indexOf(lunch) + 1) % sel.length];
     const leftover = i % 2 === 1;
     schedule.push({
-      day: WEEKDAYS[i], lunch, dinner,
-      lunchFrom: flags.lunch && leftover ? WEEKDAYS[i - 1] : null,
-      dinnerFrom: flags.dinner && leftover ? WEEKDAYS[i - 1] : null
+      day: dayName(i), lunch, dinner,
+      lunchFrom: flags.lunch && leftover ? dayName(i - 1) : null,
+      dinnerFrom: flags.dinner && leftover ? dayName(i - 1) : null
     });
   }
   return schedule;
@@ -293,7 +297,7 @@ Das JSON-Objekt muss exakt folgende Struktur haben:
 {
   "plan": [
     {
-      "day": "Montag",
+      "day": "Wochentag laut Küchen-Zuteilung",
       "meals": [
         {
           "type": "Mittag",
@@ -367,7 +371,7 @@ async function buildUserPrompt(profile) {
     ? '\n- Diese Gerichte gab es zuletzt – NICHT wiederholen und auch keine Variante davon (gleiches Hauptgericht mit anderer Beilage oder anderem Gewürz zählt als Wiederholung): ' + recent.join(', ')
     : '';
   const selected = (profile.cuisines && profile.cuisines.length ? profile.cuisines : DEFAULT_CUISINES).filter(key => CUISINES[key]);
-  const schedule = await buildCuisineSchedule(selected, profile.days, profile.batch);
+  const schedule = await buildCuisineSchedule(selected, profile.days, profile.batch, profile.startday);
   const scheduleText = schedule.map((day, i) => {
     const nextLunch = schedule[i + 1] && schedule[i + 1].lunchFrom === day.day;
     const nextDinner = schedule[i + 1] && schedule[i + 1].dinnerFrom === day.day;

@@ -135,7 +135,7 @@ async def main():
             if has_plan: await page.click('[data-action="new-plan"]')
             await page.wait_for_selector('[data-view="form"]:not([hidden])')
             check('Formular mit altem Profil vorbelegt', (not old.get('nc_profile')) or await page.input_value('#pf-goal') == old['nc_profile'].get('goal', 'Muskelaufbau'))
-            await page.select_option('#pf-days', '3'); await page.select_option('#pf-batch', 'aus'); await page.click('#generateBtn')
+            await page.select_option('#pf-days', '3'); await page.select_option('#pf-batch', 'aus'); await page.select_option('#pf-startday', '0'); await page.click('#generateBtn')
             await page.wait_for_selector('[data-view="plan"]:not([hidden])', timeout=20000)
             req = calls[-1]
             check('KI-Aufruf: Modell aus Konfiguration, Key im Header, Browser-Freigabe',
@@ -157,6 +157,16 @@ async def main():
             check('Neue Rezepte bekommen die Küche', all(r.get('cuisine') for r in json.loads((await ls())['nutricoach.library']) if r.get('name') in ('Linseneintopf', 'Wrap')))
             await page.click('[data-sub="plan:nutrients"]')
             check('Nährwerte: 3 Tage à 1200 kcal = 3600', '3600' in await page.text_content('#nutrientsContent'))
+
+            # Erster Tag wählbar: heute ist vorgewählt, der Plan läuft über Sonntag hinaus (Sa → So → Mo)
+            await page.click('[data-action="new-plan"]'); await page.wait_for_selector('[data-view="form"]:not([hidden])')
+            check('Erster Tag ist beim Öffnen auf heute vorgewählt', await page.input_value('#pf-startday') == await page.evaluate("String((new Date().getDay() + 6) % 7)"))
+            await page.select_option('#pf-days', '3'); await page.select_option('#pf-batch', 'beide'); await page.select_option('#pf-startday', '5'); await page.click('#generateBtn')
+            await page.wait_for_selector('[data-view="plan"]:not([hidden])', timeout=20000)
+            days_shown = await page.locator('#planContent .day__name').all_text_contents()
+            check('Plan beginnt am gewählten Tag (Samstag, Sonntag, Montag)', days_shown == ['Samstag', 'Sonntag', 'Montag'], days_shown)
+            prompt = calls[-1]['body']['messages'][0]['content']
+            check('Prompt nennt die Tage ab dem Starttag, Reste vom Vortag', 'Samstag: Mittag =' in prompt and 'RESTE von Samstag' in prompt and 'Montag: Mittag =' in prompt)
 
             # Einkaufsliste abhaken bleibt nach Neuladen
             await page.click('[data-nav="shopping"]'); await page.locator('[data-item]').first.click()
