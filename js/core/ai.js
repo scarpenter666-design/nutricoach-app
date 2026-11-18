@@ -11,8 +11,15 @@
    und geht direkt vom Browser an die KI-Schnittstelle. Kein Server.
    Deshalb nur für Apps, die man selbst mit eigenem Key nutzt.
 
+   Lange Antworten (z. B. ein ganzer Plan) mit  stream: true  anfordern.
+   Dann kommt die Antwort Stück für Stück an. Abgebrochen wird nur,
+   wenn eine Weile gar nichts mehr ankommt (streamIdleSeconds) oder die
+   harte Obergrenze streamMaxSeconds erreicht ist, nicht schon nach
+   einer festen Gesamtzeit.
+
    Einstellungen in app.config.js unter "ai": endpoint, apiVersion,
-   model, temperature, timeoutSeconds, keyPrefix.
+   model, temperature, timeoutSeconds, streamIdleSeconds,
+   streamMaxSeconds, keyPrefix.
    Die Adresse von endpoint muss in der CSP bei connect-src stehen.
    ============================================================ */
 
@@ -111,6 +118,97 @@ export function createAI({ store, keyName = 'apikey' }) {
     return { response, data };
   }
 
+  /** Fehler, die die KI mitten im Datenstrom meldet, wie die normalen HTTP-Fehler behandeln. */
+  function streamError(error) {
+    const status = { overloaded_error: 529, rate_limit_error: 429, authentication_error: 401, permission_error: 403, not_found_error: 404, invalid_request_error: 400 }[error && error.type] || 500;
+    return messageFor(status, error && error.message);
+  }
+
+  /** Liest den Datenstrom (SSE) und setzt daraus dieselbe Antwort zusammen wie bei einer normalen Anfrage. */
+  async function readStream(stream, onData) {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    const blocks = [];
+    let stopReason = null, finished = false, buffer = '';
+    const handle = raw => {
+      const line = raw.split('\n').find(item => item.startsWith('data:'));
+      if (!line) return;
+      let event;
+      try { event = JSON.parse(line.slice(5)); } catch { return; }
+      if (event.type === 'content_block_start' && event.content_block && event.content_block.type === 'text') {
+        blocks[event.index] = { type: 'text', text: event.content_block.text || '' };
+      } else if (event.type === 'content_block_delta' && event.delta && event.delta.type === 'text_delta') {
+        if (!blocks[event.index]) blocks[event.index] = { type: 'text', text: '' };
+        blocks[event.index].text += event.delta.text || '';
+      } else if (event.type === 'message_delta' && event.delta && event.delta.stop_reason) {
+        stopReason = event.delta.stop_reason;
+      } else if (event.type === 'message_stop') {
+        finished = true;
+      } else if (event.type === 'error') {
+        throw streamError(event.error);
+      }
+    };
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      onData();
+      buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, '\n');
+      let cut;
+      while ((cut = buffer.indexOf('\n\n')) >= 0) {
+        handle(buffer.slice(0, cut));
+        buffer = buffer.slice(cut + 2);
+      }
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) handle(buffer.replace(/\r\n/g, '\n'));
+    if (!finished) throw new AIError('network', 'Die Verbindung zur KI wurde unterbrochen, bevor die Antwort fertig war. Bitte noch einmal versuchen.');
+    return { content: blocks.filter(Boolean), stop_reason: stopReason };
+  }
+
+  /** Wie send(), aber als Datenstrom: Zeitgrenze gilt nur für "es kommt nichts mehr an". */
+  async function sendStream(body) {
+    const idleMs = (cfg.streamIdleSeconds || 60) * 1000;
+    const maxMs = (cfg.streamMaxSeconds || 600) * 1000;
+    const controller = new AbortController();
+    let idleTimer;
+    const arm = () => { clearTimeout(idleTimer); idleTimer = setTimeout(() => controller.abort(), idleMs); };
+    const maxTimer = setTimeout(() => controller.abort(), maxMs);
+    arm();
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': await getKey(),
+          'anthropic-version': cfg.apiVersion || '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({ ...body, stream: true }),
+        signal: controller.signal,
+        cache: 'no-store'
+      });
+      arm();
+      if (!response.ok) {
+        let data = null;
+        try { data = await response.json(); } catch { /* leere Antwort */ }
+        throw messageFor(response.status, data?.error?.message);
+      }
+      if (!response.body) throw new AIError('format', 'Die KI hat eine leere Antwort geschickt.');
+      return await readStream(response.body, arm);
+    } catch (error) {
+      if (error instanceof AIError) throw error;
+      if (error && error.name === 'AbortError') {
+        throw new AIError('timeout', 'Die KI hat sich nicht mehr gemeldet oder zu lange gebraucht. Bitte noch einmal versuchen.');
+      }
+      throw new AIError('network', navigator.onLine === false
+        ? 'Keine Internetverbindung. Die KI braucht Internet.'
+        : 'Die Verbindung zur KI ist abgebrochen. Bitte Verbindung prüfen und noch einmal versuchen.');
+    } finally {
+      clearTimeout(idleTimer);
+      clearTimeout(maxTimer);
+    }
+  }
+
   /**
    * Schickt eine Anfrage an die KI.
    * @param {object}  options
@@ -118,14 +216,28 @@ export function createAI({ store, keyName = 'apikey' }) {
    * @param {Array}   options.messages     [{ role: 'user', content: '…' | [Blöcke] }]
    * @param {number}  [options.maxTokens=4000]
    * @param {number|null} [options.temperature]  Standard aus app.config.js
+   * @param {boolean} [options.stream=false]     für lange Antworten: als Datenstrom lesen
    * @returns {Promise<object>} Antwort der Schnittstelle (content, stop_reason, …)
    */
-  async function ask({ system, messages, maxTokens = 4000, temperature = cfg.temperature ?? null }) {
+  async function ask({ system, messages, maxTokens = 4000, temperature = cfg.temperature ?? null, stream = false }) {
     if (!(await hasKey())) throw new AIError('no-key', 'Es ist noch kein API-Key eingetragen.');
     const body = { model: cfg.model, max_tokens: maxTokens, messages };
     if (system) body.system = system;
     if (temperature !== null && temperature !== undefined) body.temperature = temperature;
     const timeout = cfg.timeoutSeconds || 180;
+
+    if (stream) {
+      try {
+        return await sendStream(body);
+      } catch (error) {
+        // Manche Modelle nehmen "temperature" nicht an. Dann einmal ohne versuchen.
+        if (error instanceof AIError && error.status === 400 && 'temperature' in body && /temperature/i.test(error.message)) {
+          delete body.temperature;
+          return await sendStream(body);
+        }
+        throw error;
+      }
+    }
 
     let { response, data } = await send(body, timeout);
     // Manche Modelle nehmen "temperature" nicht an. Dann einmal ohne versuchen.

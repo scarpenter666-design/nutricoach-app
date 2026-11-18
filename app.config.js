@@ -39,7 +39,9 @@ self.APP_CONFIG = {
     apiVersion: '2023-06-01',
     model: 'claude-sonnet-5-5',   // Modell hier wechseln, nicht im Code
     temperature: 0.8,             // null = Standard des Modells
-    timeoutSeconds: 180,
+    timeoutSeconds: 180,          // normale Anfragen: höchstens so lange insgesamt
+    streamIdleSeconds: 60,        // lange Anfragen (Plan): Abbruch, wenn so lange nichts mehr ankommt
+    streamMaxSeconds: 600,        // und harte Obergrenze für die ganze Antwort
     keyPrefix: 'sk-ant-',
     keyUrl: 'https://console.anthropic.com/settings/keys'
   },

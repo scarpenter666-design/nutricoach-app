@@ -31,6 +31,17 @@ PLAN = {'plan': [
     'shopping': {'byCategory': {'Trockenwaren & Konserven': [{'name': 'Rote Linsen', 'amount': '500g'}], 'Gemüse & Obst': [{'name': 'Paprika', 'amount': '3'}]},
                  'byRecipe': [{'recipe': 'Linseneintopf', 'items': [{'name': 'Rote Linsen', 'amount': '500g'}]}], 'estimatedCost': 'ca. 31€'}}
 
+def sse(events):
+    return ''.join(f"event: {e['type']}\ndata: {json.dumps(e)}\n\n" for e in events)
+
+def sse_answer(text, finish=True):
+    """Antwort der KI als Datenstrom, in Stücken zu 300 Zeichen. finish=False: Strom reißt vor dem Ende ab."""
+    events = [{'type': 'message_start', 'message': {'id': 'msg_1', 'role': 'assistant', 'content': []}},
+              {'type': 'content_block_start', 'index': 0, 'content_block': {'type': 'text', 'text': ''}}]
+    events += [{'type': 'content_block_delta', 'index': 0, 'delta': {'type': 'text_delta', 'text': text[i:i + 300]}} for i in range(0, len(text), 300)]
+    if finish: events += [{'type': 'content_block_stop', 'index': 0}, {'type': 'message_delta', 'delta': {'stop_reason': 'end_turn'}}, {'type': 'message_stop'}]
+    return sse(events)
+
 def receipt(price):
     return {'store': 'Testmarkt', 'date': '15.11.2026', 'total': 10.5, 'items': [{'name': 'Haferflocken', 'price': price, 'qty': 1, 'unit': 'Stück'}]}
 
@@ -63,6 +74,10 @@ async def main():
         else:
             payload = receipt(mode['price']) if is_image else PLAN
         text = '```json\n' + json.dumps(payload) + '\n```'
+        if body.get('stream'):   # der Plan wird als Datenstrom angefordert
+            if mode['value'] == 'overloaded': stream_body = sse([{'type': 'message_start', 'message': {'id': 'msg_1', 'role': 'assistant', 'content': []}}, {'type': 'error', 'error': {'type': 'overloaded_error', 'message': 'Overloaded'}}])
+            else: stream_body = sse_answer(text, finish=mode['value'] != 'cut')
+            await route.fulfill(status=200, content_type='text/event-stream', headers={'access-control-allow-origin': '*'}, body=stream_body); return
         await route.fulfill(status=200, content_type='application/json', headers={'access-control-allow-origin': '*'},
                             body=json.dumps({'content': [{'type': 'text', 'text': text}], 'stop_reason': 'end_turn'}))
     try:
@@ -140,6 +155,7 @@ async def main():
             req = calls[-1]
             check('KI-Aufruf: Modell aus Konfiguration, Key im Header, Browser-Freigabe',
                   req['body'].get('model') == 'claude-sonnet-5-5' and req['headers'].get('x-api-key') == KEY and req['headers'].get('anthropic-dangerous-direct-browser-access') == 'true', req['body'].get('model'))
+            check('Plan wird als Datenstrom angefordert (stream: true)', req['body'].get('stream') is True)
             check('Neuer Plan: 3 Tage angezeigt', await page.locator('#planContent .day').count() == 3)
             check('KI-Text wird als Text gezeigt, nicht als HTML', await page.locator('#xss').count() == 0 and '<img' in await page.text_content('#planContent'))
             data = await ls()
@@ -193,6 +209,12 @@ async def main():
             await page.wait_for_selector('[data-view="form"]:not([hidden])')
             await wait_true(page, "document.body.innerText.includes('abgelehnt')")
             check('KI-Fehler 401: verständliche Meldung, zurück zum Formular, alter Plan bleibt', await page.evaluate("JSON.parse(localStorage.getItem('nutricoach.plan')).length") == 3)
+            # Fehler mitten im Datenstrom: Meldung statt halbem Plan, alter Plan bleibt
+            for kind, word in (('overloaded', 'überlastet'), ('cut', 'unterbrochen')):
+                mode['value'] = kind
+                await page.click('[data-nav="plan"]'); await page.click('[data-action="new-plan"]'); await page.click('#generateBtn')
+                await wait_true(page, f"document.body.innerText.includes('{word}')")
+                check(f'Strom-Fehler "{kind}": verständliche Meldung, alter Plan bleibt', await page.evaluate("JSON.parse(localStorage.getItem('nutricoach.plan')).length") == 3)
             mode['value'] = 'ok'
 
             # Backup: ohne Key

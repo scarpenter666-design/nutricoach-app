@@ -482,7 +482,7 @@ async function generatePlan(profile) {
   const ticker = setInterval(() => { step++; $('loadingStep').textContent = steps[step % steps.length]; }, 2500);
   try {
     const { prompt, schedule } = await buildUserPrompt(profile);
-    const data = await ai.ask({ system: SYSTEM_PROMPT, messages: [{ role: 'user', content: prompt }], maxTokens: 12000 });
+    const data = await ai.ask({ system: SYSTEM_PROMPT, messages: [{ role: 'user', content: prompt }], maxTokens: 12000, stream: true });
     const parsed = ai.parseJson(data);
     if (!parsed || !Array.isArray(parsed.plan) || !parsed.plan.length) throw new AIError('format', 'Die KI hat keinen Plan geliefert. Bitte noch einmal versuchen.');
 
